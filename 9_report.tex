@@ -1,0 +1,285 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage[hidelinks]{hyperref}
+
+\input{glyphtounicode}
+\pdfgentounicode=1
+
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{rulegray}{RGB}{210,210,210}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  rulecolor=\color{rulegray},
+  backgroundcolor=\color{codebg},
+  xleftmargin=0.2in,
+  xrightmargin=0.2in
+}
+
+\title{Cryptography Engineering Project 2 Report}
+\author{Group 9}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Task 1: Single Hash vs. Merkle Tree}
+
+\subsection{Experimental Results}
+
+\textbf{Test Environment Configuration}
+\begin{itemize}
+  \item Dataset size: 128 MB
+  \item Number of blocks: $n = 2^7 = 128$
+\end{itemize}
+
+\textbf{Single Hash (All-or-Nothing Approach)}
+\begin{itemize}
+  \item Resulting SHA-256:
+\end{itemize}
+\begin{lstlisting}
+0c05acf58bb36284a9e73f0222f2fd0621954bb8eb5c16ee50a45341b5cd4594
+\end{lstlisting}
+\begin{itemize}
+  \item Execution time: 0.088621 seconds
+\end{itemize}
+
+\textbf{Merkle Tree Construction}
+\begin{itemize}
+  \item Merkle root:
+\end{itemize}
+\begin{lstlisting}
+3cd74d8d7171cce47fb900a1aca739b74286b6f84e5da9490f54559dbecc8668
+\end{lstlisting}
+\begin{itemize}
+  \item Execution time: 0.137790 seconds
+  \item Internal node memory overhead: 8255 bytes
+\end{itemize}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{report_assets/image1.png}
+  \caption{Task 1 console output.}
+\end{figure}
+
+\subsection{Discussion and Findings}
+
+\textbf{Execution Time Comparison.}
+The Single Hash method completed in approximately 0.088 seconds, while the
+Merkle Tree construction took 0.137 seconds. The Single Hash approach is
+inherently faster because it sequentially processes the continuous 128 MB data
+stream in a single pass. In contrast, the Merkle Tree incurs a slight time
+penalty. This delay is expected, as the algorithm must slice the file into 128
+distinct blocks, compute 128 individual leaf hashes, and then execute iterative
+loops to concatenate and hash the internal nodes upward to the root.
+
+\textbf{Memory Overhead Analysis.}
+To fulfill the requirement of analyzing the memory overhead of the tree's
+internal nodes, the measured overhead is 8255 bytes. Mathematically, a binary
+Merkle Tree with $n = 128$ leaf nodes requires $n - 1 = 127$ internal parent
+nodes. Storing 127 SHA-256 hash objects in Python aligns with this roughly 8 KB
+footprint.
+
+\section{Task 2: Efficient Error Localization}
+
+\subsection{Implementation and Experiment Results}
+
+\textbf{Top-down search algorithm.}
+In order to find the corrupted block, the implementation compares the Merkle
+tree from the original correct data with the Merkle tree from the corrupted
+data. Starting from the root node, each traversal level needs only one child
+comparison because the experiment assumes that only one block is corrupted. If
+the left child hash does not match the trusted tree, the corruption is located
+in the left subtree, so the algorithm traverses down the left path. If the left
+child hash matches, the left subtree is intact and the corruption must be in the
+right subtree, so the algorithm traverses down the right path. This process
+continues until the affected leaf node is reached.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.98\linewidth]{report_assets/image2.png}
+  \caption{Task 2 console output.}
+\end{figure}
+
+\subsection{Discussion}
+
+In this experiment, the 128 MB file is divided into $n = 128$ blocks, which are
+used to construct a complete binary tree. The height $H$ of this tree is
+$\log_2(128) = 7$.
+
+\textbf{Traversal Strategy.}
+During the top-down traversal, because there is only a single bit error in the
+entire dataset, it is sufficient to check only one child node, specifically the
+left child, at each level to make a routing decision.
+
+\textbf{Comparison Count Proof.}
+Each hash comparison eliminates half of the remaining search space. Traversing
+from the root at level 7 down to a leaf at level 0 requires descending exactly
+7 levels. Because the implementation executes exactly one hash comparison per
+level, the total number of comparisons is exactly 7. This satisfies the
+theoretical constraint of $\log_2(n)$ comparisons.
+
+\section{Task 3: Efficient Node Replacement}
+
+\subsection{Experimental Results}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{report_assets/image3.png}
+  \caption{Task 3 console output.}
+\end{figure}
+
+\subsection{Discussion and Findings}
+
+Task 3 evaluates whether the Merkle root can be updated efficiently after
+replacing one 1 MB block. Instead of rebuilding the entire Merkle Tree,
+\texttt{replace\_node()} updates only the affected path from the modified leaf
+to the root.
+
+\textbf{Correctness Verification.}
+Both update methods produced the same updated Merkle root.
+
+\begin{lstlisting}
+c392a826e9a141f3f4dfef8baf007620a1b0d16e6fd888da5a3556b2d863039e
+\end{lstlisting}
+
+Since both methods produced the same root, the path update implementation is
+correct.
+
+\textbf{Hash Computation Comparison.}
+The full reconstruction method recomputes the entire Merkle Tree, requiring 128
+leaf hashes and 127 internal hashes, for a total of 255 hash computations. In
+contrast, \texttt{replace\_node()} only recomputes the modified leaf and the 7
+internal nodes on the path to the root, requiring only 8 hash computations.
+Therefore, the path update reduces the number of hash computations by:
+
+\[
+\frac{255}{8} = 31.88
+\]
+
+\textbf{Runtime Comparison.}
+The measured path update time was 0.000989 seconds, while the full
+reconstruction time was 0.078458 seconds.
+
+\[
+\frac{0.078458}{0.000989} = 79.33
+\]
+
+Therefore, the path update was approximately 79.33 times faster in this
+experiment. This demonstrates the main advantage of Merkle Trees for dynamic
+data. When only one block changes, only the path from the modified leaf to the
+root needs to be updated, giving an $O(\log n)$ update cost instead of
+recomputing the entire file.
+
+\section{Task 4: Advanced Self-Healing}
+
+\subsection{Implementation and Experiment Results}
+
+Task 4 integrates XOR parity recovery with Merkle Tree error detection. The
+input files are the corrupted 128 MB dataset, the trusted Merkle Tree generated
+from the original data, and the parity blocks generated from the original data.
+The clean original file is not used during repair.
+
+The parity file stores one parity block for every pair of data blocks:
+
+\[
+P_i = D_{2i} \oplus D_{2i+1}
+\]
+
+After \texttt{locate\_error()} identifies the corrupted block, the implementation
+selects the corresponding parity block and the sibling data block. If block
+$D_j$ is corrupted, its sibling block $D_s$ is still correct because the
+experiment contains only one bit flip in one block. The original block can
+therefore be reconstructed as:
+
+\[
+D_j = P_{\lfloor j/2 \rfloor} \oplus D_s
+\]
+
+The recovered block is then passed to \texttt{replace\_node()}, which repairs
+only the affected leaf-to-root path in the corrupted Merkle Tree. The final
+verification compares the repaired root against the trusted root.
+
+\begin{lstlisting}
+========================================
+ Task 4: Advanced Self-Healing
+========================================
+1. Loading corrupted data, trusted Merkle Tree, and parity blocks...
+2. Building Merkle Tree from corrupted data...
+3. Locating corrupted block using trusted Merkle Tree...
+4. Recovering corrupted block with XOR parity and sibling block...
+5. Repairing Merkle Tree with replace_node()...
+
+[Output]
+Trusted Merkle Root        : 3cd74d8d7171cce47fb900a1aca739b74286b6f84e5da9490f54559dbecc8668
+Corrupted File Root        : bb2b791c16712525185c86f30f39bc878365f4612423a106ad0f729f5003242b
+Corrupted Block Index      : 42
+Comparison Count           : 7
+Parity Block Index Used    : 21
+Sibling Block Index        : 43
+Repaired Merkle Root       : 3cd74d8d7171cce47fb900a1aca739b74286b6f84e5da9490f54559dbecc8668
+Verification Result        : PASS
+========================================
+\end{lstlisting}
+
+\subsection{Discussion and Findings}
+
+The corrupted block was identified as block 42 using only the corrupted file and
+the trusted Merkle Tree. Since $n = 128$, the tree height is
+$\log_2(128) = 7$, and the reported comparison count is exactly 7. This confirms
+that the detection step keeps the required $O(\log n)$ localization behavior.
+
+The parity index used for recovery was 21 because block 42 belongs to the block
+pair $(42, 43)$, and $\lfloor 42/2 \rfloor = 21$. Since block 42 is the even
+member of the pair, block 43 is the corresponding sibling block. The repair
+process computes:
+
+\[
+D_{42} = P_{21} \oplus D_{43}
+\]
+
+The repaired Merkle root is identical to the trusted Merkle root:
+
+\begin{lstlisting}
+3cd74d8d7171cce47fb900a1aca739b74286b6f84e5da9490f54559dbecc8668
+\end{lstlisting}
+
+Therefore, the corrupted block can be both located and recovered without access
+to the original clean 128 MB file. The Merkle Tree provides efficient
+localization, while XOR parity provides the missing data needed for correction.
+Together, they implement a self-healing mechanism for a single corrupted block.
+
+\section{Summary Table}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{p{0.18\linewidth}p{0.23\linewidth}p{0.25\linewidth}p{0.22\linewidth}}
+\toprule
+Operation & Single Hash & Merkle Tree & Improvement Factor \\
+\midrule
+Detecting error & Scans 128 MB & Checks the trusted root against the corrupted root & Root mismatch gives immediate detection after root computation \\
+Localizing error & Impossible & 7 comparisons & $\log_2(128)$ search \\
+Updating 1 block & Computes 128 MB & Computes 1 MB block hash plus 7 internal hashes & 31.88x fewer hashes \\
+Proof size & No local proof & $7 \times 32 = 224$ bytes & Logarithmic proof size \\
+\bottomrule
+\end{tabular}
+\caption{Comparison summary for $n = 2^7$ blocks.}
+\end{table}
+
+\end{document}
